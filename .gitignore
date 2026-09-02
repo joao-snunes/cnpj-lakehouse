@@ -1,0 +1,24 @@
+# Secrets — never commit
+.env
+
+# main.py has hardcoded AWS credentials and must be refactored to read from .env
+# before being tracked again. Remove this line after the refactor.
+main.py
+
+# Local Python environment
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store
+
+# Downloaded data and local parquet output (large)
+ingestion/data/
+data/
+postgres_data/
+*.zip
