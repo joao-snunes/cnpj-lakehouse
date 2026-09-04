@@ -22,3 +22,7 @@ ingestion/data/
 data/
 postgres_data/
 *.zip
+
+# Gold schema is still evolving — freeze it out of tracking for now so it
+# doesn't churn every commit. Untracked via `git rm --cached`, not deleted.
+docs/schema_gold.md

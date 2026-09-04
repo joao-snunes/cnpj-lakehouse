@@ -6,15 +6,16 @@ This file provides guidance to Claude Code (and other AI coding agents) when wor
 
 A personal portfolio data engineering project: an end-to-end lakehouse pipeline (ingestion → storage → transformation → analytics-ready tables) built on top of Brazil's public CNPJ (company registry) dataset, published monthly by Receita Federal (Brazilian IRS).
 
-Target audience: international data engineering job applications (2027 cycle). Code, technical docs, and architecture decisions are in English. Business-domain naming (table/column names, data dictionaries) is in Portuguese, since the source data is Brazilian government data — see `docs/contexto_projeto.md` for the full rationale.
+Target audience: international data engineering job applications (2027 cycle). Code, technical docs, and architecture decisions are in English. Business-domain naming (table/column names, data dictionaries) is in Portuguese, since the source data is Brazilian government data — see `context.md` for the full rationale.
 
-**Always read `docs/contexto_projeto.md` first** — it is the source of truth for scope, architecture decisions, and current status. Update its "Status atual" checklist as work progresses.
+**Always read `context.md` first** — it is the source of truth for scope, architecture decisions, and current status. Update its "Status atual" checklist as work progresses.
 
 ## Architecture
 
 Medallion architecture (Bronze → Silver → Gold), documented in:
-- `docs/schema_bronze_documentacao.md` — raw layer schema (mirrors Receita Federal CSV layout)
-- `docs/schema_gold_documentacao.md` — analytics-ready layer schema
+- `docs/schema_bronze.md` — raw layer schema (mirrors Receita Federal CSV layout) + the staging layer that precedes it
+- `docs/schema_gold.md` — analytics-ready layer schema
+- `docs/decisions/` — ADRs for architecture decisions (e.g. `0001-split-extract-and-publish.md`)
 
 Key design decision: **no star schema in Gold**. The CNPJ dataset is master/reference data, not transactional events, so Kimball fact/dimension modeling was deliberately rejected in favor of:
 - Wide, denormalized tables for cadastral/analytical use (`gold.estabelecimentos`, `gold.socios`)
@@ -29,7 +30,7 @@ Do not reintroduce star schema / surrogate keys / conformed dimensions unless th
 - Source: Receita Federal public CNPJ files (Empresas, Estabelecimentos, Sócios, Simples/MEI, Regime Tributário)
 - Base repository (download/unzip logic adapted from, MIT licensed): https://github.com/libercapital/dados_publicos_cnpj_receita_federal
 - **Scope constraint**: full dataset is ~20GB / ~160M rows — incompatible with S3 free-tier (5GB) and Databricks Community Edition. The project filters to a single UF (state) and prioritizes Empresas + Estabelecimentos tables. Do not write code that assumes full-dataset volume; always assume the UF-filtered subset.
-- Estabelecimentos/Empresas/Sócios source ZIPs are split into 10 arbitrary chunks each — **not** pre-partitioned by UF. UF filtering happens after reading the CSV content, during Bronze ingestion or Bronze→Silver transformation, never at download time.
+- Estabelecimentos/Empresas/Sócios source ZIPs are split into 10 arbitrary chunks each — **not** pre-partitioned by UF. UF filtering happens after reading the CSV content, never at download time. Ingestion itself is split into two stages (`docs/decisions/0001-split-extract-and-publish.md`): extract (ZIP → staging Parquet, no filter, `ingestion/extract_parquet.py`) and join/publish (UF filter + `cnpj_basico` semi-join, then S3 — not implemented yet).
 
 ## Conventions
 
@@ -44,7 +45,7 @@ Do not reintroduce star schema / surrogate keys / conformed dimensions unless th
 ```
 cnpj-lakehouse/
 ├── docs/                    ← source of truth, read before making architecture changes
-├── ingestion/               ← download/unzip/upload scripts (Python)
+├── ingestion/               ← download, extract (ZIP→staging Parquet), join/publish (staging→Bronze/S3) scripts (Python)
 ├── notebooks/               ← PySpark notebooks (Bronze→Silver, Silver→Gold), run on Databricks
 ├── infra/                   ← Terraform (S3 + IAM)
 ├── tests/
@@ -54,7 +55,7 @@ cnpj-lakehouse/
 ## Working across machines
 
 This project is developed from two machines (work laptop, personal desktop). There is no shared Claude Code memory between them — treat every session as starting fresh on auto-memory, but rely on:
-1. `docs/contexto_projeto.md` status checklist
+1. `context.md` status checklist
 2. `docs/progress.md` — session log, update at the end of each work session before committing
 3. Git as the sync mechanism — always `git pull` before starting, commit + push before ending a session
 

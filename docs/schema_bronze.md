@@ -39,7 +39,7 @@ s3://cnpj-lakehouse-xxx/bronze/
 | `cnpj_basico` | VARCHAR(8) | STRING | Chave primária — 8 primeiros dígitos do CNPJ |
 | `razao_social` | VARCHAR(255) | STRING | Nome empresarial |
 | `natureza_juridica` | VARCHAR(4) | STRING | Código da natureza jurídica (ex: 2062) |
-| `qualificacao_do_responsavel` | VARCHAR(2) | STRING | Qualificação do responsável legal |
+| `qualificacao_responsavel` | VARCHAR(2) | STRING | Qualificação do responsável legal |
 | `capital_social` | NUMERIC(15,2) | DECIMAL(15,2) | Capital social declarado |
 | `porte` | VARCHAR(2) | STRING | Porte da empresa (01=ME, 03=EPP, 05=Demais, 00=Não informado) |
 | `ente_federativo_responsavel` | VARCHAR(4) | STRING | Preenchido apenas p/ órgãos públicos |
@@ -61,12 +61,13 @@ s3://cnpj-lakehouse-xxx/bronze/
 | `cnpj_basico` | VARCHAR(8) | STRING | Vincula à empresa raiz |
 | `cnpj_ordem` | VARCHAR(4) | STRING | Número de ordem do estabelecimento (0001 = matriz) |
 | `cnpj_dv` | VARCHAR(2) | STRING | Dígitos verificadores |
-| `cnpj_completo` | VARCHAR(14) | STRING | CNPJ completo (concatenação de basico+ordem+dv, para facilitar) |
-| `matriz_filial` | VARCHAR(1) | STRING | 1 = Matriz, 2 = Filial |
+| `identificador_matriz_filial` | VARCHAR(1) | STRING | 1 = Matriz, 2 = Filial |
 | `nome_fantasia` | VARCHAR(255) | STRING | |
 | `situacao_cadastral` | VARCHAR(2) | STRING | 01=Nula, 02=Ativa, 03=Suspensa, 04=Inapta, 08=Baixada |
 | `data_situacao_cadastral` | DATE | DATE | |
-| `motivo_deativacao` | VARCHAR(3) | STRING | Código do motivo (se inativa) |
+| `motivo_situacao_cadastral` | VARCHAR(3) | STRING | Código do motivo (se inativa) |
+| `nome_cidade_exterior` | VARCHAR(60) | STRING | Preenchido apenas se estabelecimento é no exterior |
+| `pais` | VARCHAR(3) | STRING | Código do país (ver `dim_pais`) |
 | `data_inicio_atividade` | DATE | DATE | |
 | `cnae_fiscal_principal` | VARCHAR(7) | STRING | Código CNAE principal (ex: 4711302) |
 | `cnae_fiscal_secundaria` | VARCHAR(2000) | STRING | CNAEs secundários separados por vírgula (pode ser longo) |
@@ -82,11 +83,14 @@ s3://cnpj-lakehouse-xxx/bronze/
 | `telefone_1` | VARCHAR(8) | STRING | |
 | `ddd_2` | VARCHAR(2) | STRING | |
 | `telefone_2` | VARCHAR(8) | STRING | |
+| `ddd_fax` | VARCHAR(2) | STRING | |
 | `fax` | VARCHAR(8) | STRING | |
 | `correio_eletronico` | VARCHAR(255) | STRING | Email |
+| `situacao_especial` | VARCHAR(30) | STRING | |
+| `data_situacao_especial` | DATE | DATE | |
 | `data_referencia` | DATE | DATE | (partition) |
 
-**Nota:** A concatenação `cnpj_completo` não é feita na origem; é um cálculo (`cnpj_basico || cnpj_ordem || cnpj_dv`) que você adiciona já na leitura do CSV para facilitar joins.
+**Nota:** este layout tem 5 colunas a mais que a versão anterior deste documento (`nome_cidade_exterior`, `pais`, `ddd_fax`, `situacao_especial`, `data_situacao_especial`) e não inclui `cnpj_completo` — a Receita não publica essa concatenação, e o pipeline atual (`ingestion/extract_parquet.py`) não calcula nenhuma coluna derivada na camada Bronze/staging (mínima transformação); se for útil, calcular na Silver.
 
 ---
 
@@ -100,17 +104,19 @@ s3://cnpj-lakehouse-xxx/bronze/
 |---|---|---|---|
 | `cnpj_basico` | VARCHAR(8) | STRING | Vincula à empresa |
 | `identificador_de_socio` | VARCHAR(1) | STRING | 1=PJ, 2=PF, 3=Estrangeiro |
-| `nome_do_socio` | VARCHAR(150) | STRING | Nome completo (ou razão social se PJ) |
-| `cnpj_ou_cpf_do_socio` | VARCHAR(14) | STRING | CNPJ/CPF sem máscara |
+| `nome_socio` | VARCHAR(150) | STRING | Nome completo (ou razão social se PJ) |
+| `cnpj_cpf_do_socio` | VARCHAR(14) | STRING | CNPJ/CPF sem máscara |
 | `qualificacao_do_socio` | VARCHAR(2) | STRING | Código de qualificação |
-| `data_de_entrada_da_sociedade` | DATE | DATE | |
-| `cpf_do_representante_legal` | VARCHAR(11) | STRING | Se sócio é PJ, quem a representa |
-| `nome_do_representante_legal` | VARCHAR(150) | STRING | |
+| `data_entrada_sociedade` | DATE | DATE | |
+| `pais` | VARCHAR(3) | STRING | Preenchido se sócio é estrangeiro (ver `dim_pais`) |
+| `representante_legal` | VARCHAR(11) | STRING | CPF de quem representa o sócio, se PJ |
+| `nome_do_representante` | VARCHAR(150) | STRING | |
+| `qualificacao_do_representante_legal` | VARCHAR(2) | STRING | Código de qualificação do representante |
 | `faixa_etaria` | VARCHAR(1) | STRING | Faixa codificada (A=até 30, B=30-60, C=60+, etc.) — já é anônima na origem |
 | `data_referencia` | DATE | DATE | (partition) |
 | `uf` | VARCHAR(2) | STRING | (partition — derivado de cnpj_basico + lookup) |
 
-**Nota:** Pessoa física identificada por `nome_do_socio` e `cpf_do_socio` é dado pessoal. Será mascarado/hasheado na camada Silver (LGPD).
+**Nota:** Pessoa física identificada por `nome_socio` e `cnpj_cpf_do_socio` é dado pessoal. Será mascarado/hasheado na camada Silver (LGPD).
 
 ---
 
@@ -124,17 +130,19 @@ s3://cnpj-lakehouse-xxx/bronze/
 |---|---|---|---|
 | `cnpj_basico` | VARCHAR(8) | STRING | Chave primária |
 | `opcao_pelo_simples` | VARCHAR(1) | STRING | S/N — optou pelo Simples Nacional |
-| `data_opcao_simples` | DATE | DATE | |
-| `data_exclusao_simples` | DATE | DATE | Null se ainda está ativa no Simples |
+| `data_opcao_pelo_simples` | DATE | DATE | |
+| `data_exclusao_do_simples` | DATE | DATE | Null se ainda está ativa no Simples |
 | `opcao_pelo_mei` | VARCHAR(1) | STRING | S/N — optou por MEI |
-| `data_opcao_mei` | DATE | DATE | |
-| `data_exclusao_mei` | DATE | DATE | Null se ainda está ativa no MEI |
+| `data_opcao_pelo_mei` | DATE | DATE | |
+| `data_exclusao_do_mei` | DATE | DATE | Null se ainda está ativa no MEI |
 | `data_referencia` | DATE | DATE | (partition) |
 | `uf` | VARCHAR(2) | STRING | (partition) |
 
 ---
 
 ## 5. `bronze.regime_tributario` (rf_company_tax_regime no repo base)
+
+**Status:** não implementado — não há grupo correspondente em `ingestion/extract_parquet.py::GROUP_CONFIGS`. Seção mantida como referência/roadmap; colunas abaixo ainda não foram validadas contra um arquivo real.
 
 **Origem:** Arquivo `regime-tributario.csv` da Receita Federal.
 **Grão:** Informações de regime tributário por CNPJ + data.
@@ -156,22 +164,20 @@ s3://cnpj-lakehouse-xxx/bronze/
 
 ## 6. Tabelas de domínio (dimensões públicas)
 
-Essas tabelas mapeiam códigos para descrições e vêm também como CSVs do site da Receita:
+Essas tabelas mapeiam códigos para descrições e vêm também como CSVs do site da Receita. No layout real (confirmado contra o repo base), **todas** têm apenas duas colunas de conteúdo — código e descrição — sem partição por `uf` (só por `data_referencia`); não há colunas extras como `secao` ou nomes específicos como `codigo_ibge`/`nome`:
 
 ### `bronze.dim_cnae`
 | Coluna | Tipo | Descrição |
 |---|---|---|
 | `codigo` | STRING | Código CNAE (ex: 4711302) |
 | `descricao` | STRING | Descrição da atividade |
-| `secao` | STRING | Seção agregada (ex: G, H, I) |
 | `data_referencia` | DATE | (partition) |
 
 ### `bronze.dim_municipio`
 | Coluna | Tipo | Descrição |
 |---|---|---|
-| `codigo_ibge` | STRING | Código IBGE (ex: 3550308 para São Paulo) |
-| `nome` | STRING | Nome do município |
-| `uf` | STRING | (partition) |
+| `codigo` | STRING | Código IBGE (ex: 3550308 para São Paulo) |
+| `descricao` | STRING | Nome do município |
 | `data_referencia` | DATE | (partition) |
 
 ### `bronze.dim_natureza_juridica`
@@ -193,6 +199,13 @@ Essas tabelas mapeiam códigos para descrições e vêm também como CSVs do sit
 |---|---|---|
 | `codigo` | STRING | |
 | `descricao` | STRING | Ex: "Encerramento de atividades" |
+| `data_referencia` | DATE | (partition) |
+
+### `bronze.dim_pais`
+| Coluna | Tipo | Descrição |
+|---|---|---|
+| `codigo` | STRING | Código do país (referenciado por `estabelecimentos.pais` e `socios.pais`) |
+| `descricao` | STRING | Nome do país |
 | `data_referencia` | DATE | (partition) |
 
 ---
@@ -217,14 +230,15 @@ Essas tabelas mapeiam códigos para descrições e vêm também como CSVs do sit
 
 ## Fluxo de ingestão
 
-1. **Download:** ZIP da Receita → local
-2. **Unzip:** `.zip` → `.csv`
-3. **Read:** Pandas lê CSV com encoding correto (Latin-1 pela RFC dos arquivos)
-4. **Transform (mínimo):**
-   - Tipagem básica (DATE, INT, STRING)
-   - Concatenação `cnpj_completo` onde necessário
-   - Add `data_referencia` e `uf` (colunas de partition)
-5. **Write:** Parquet particionado → S3
+A ingestão é dividida em dois estágios independentes (ver `docs/decisions/0001-split-extract-and-publish.md` para o racional completo e os números de benchmark que motivaram a divisão):
+
+1. **Download** (`ingestion/download.py`): ZIP da Receita → `data/raw/<data_referencia>/`, local.
+2. **Extract** (`ingestion/extract_parquet.py`, implementado): lê o CSV de dentro do ZIP em streaming (sem extrair pro disco), via PyArrow, encoding Latin-1. **Sem filtro de UF, sem join por `cnpj_basico`** — grava um Parquet por shard, nacional, em `data/staging/<tabela>/data_referencia=<AAAA-MM>/shard=<N>/`. Camada transiente, não é a Bronze final.
+3. **Join + Publish** (**não implementado ainda**): DuckDB lê os Parquets de `data/staging/`, aplica o filtro de UF (Estabelecimentos) e o semi-join por `cnpj_basico` (Empresas/Sócios/Simples), e escreve o resultado final particionado por `data_referencia`/`uf` — a Bronze descrita nas seções acima deste documento — direto em S3 (via `httpfs`).
+
+### Camada de staging (pré-Bronze)
+
+O Parquet gravado pelo estágio de extração tem o **mesmo layout de colunas** de cada tabela Bronze correspondente (seções 1-6 acima), mas difere em dois pontos: (a) é **nacional**, sem filtro de UF/`cnpj_basico` — contém todos os estados; (b) é particionado por `shard=<N>` em vez de `uf=<UF>`, já que ainda não houve join/merge entre shards. Não deve ser consultado diretamente por camadas posteriores (Silver/Gold) — é insumo do estágio de Join + Publish, e será removido depois de uma publicação bem-sucedida em S3 (etapa de limpeza ainda não implementada).
 
 ---
 

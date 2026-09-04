@@ -2,24 +2,16 @@
 Download dos arquivos públicos de CNPJ da Receita Federal, hospedados em um
 compartilhamento público Nextcloud.
 
-Protocolo confirmado a partir de dois repositórios de referência:
-- https://github.com/libercapital/dados_publicos_cnpj_receita_federal (MIT)
-  -> lógica de parsing/layout dos CSVs ainda válida, mas o download.py deles
-     está desatualizado: foi escrito para a antiga listagem HTTP simples
-     (http://200.152.38.155/CNPJ), que não existe mais.
-- https://github.com/caiopizzol/cnpj-data-pipeline (confirma a migração para
-  Nextcloud desde a v1.3.2 e usa WebDAV — mecanismo replicado aqui de forma
-  simplificada para o escopo deste projeto).
+Repositório de referência:
+- https://github.com/caiopizzol/cnpj-data-pipeline
 
-Mecanismo Nextcloud (share público):
+Mecanismo Nextcloud:
   URL de compartilhamento: https://<host>/index.php/s/<token>?dir=<path>
   Endpoint WebDAV:         https://<host>/public.php/webdav/<path>
   Autenticação:            Basic Auth, usuário = token, senha = "" (vazia)
   Listagem de diretório:   método HTTP PROPFIND (Depth: 1), resposta em XML
 
-Este script cobre apenas listagem + download (sem o retry adaptativo e
-resume avançado do cnpj-data-pipeline — ver docs/contexto_projeto.md,
-seção de roadmap, para possíveis extensões futuras).
+Este script cobre apenas listagem + download, sendo uma simplificação do cnpj-data-pipeline.
 """
 
 import os
@@ -37,13 +29,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger(__name__)
 
 # --- Configuração do compartilhamento Nextcloud da Receita Federal ---
-# Valores default confirmados a partir do config.py do cnpj-data-pipeline
-# (repositório em produção ativa) — esse token já aponta direto para a
-# pasta raiz que contém as pastas AAAA-MM, sem sufixo de path adicional.
-# Pode ser sobrescrito via .env se a Receita rotacionar o link no futuro.
+
 BASE_URL = os.getenv("BASE_URL", "https://arquivos.receitafederal.gov.br/public.php/webdav")
 SHARE_TOKEN = os.getenv("SHARE_TOKEN", "YggdBLfdninEJX9")
-AUTH = (SHARE_TOKEN, "")  # Basic Auth: token como usuário, senha vazia
+AUTH = (SHARE_TOKEN, "")
 
 DAV_NS = {"d": "DAV:"}
 
@@ -64,7 +53,7 @@ FILE_GROUPS = {
 
 
 def _propfind(path: str = "") -> ElementTree.Element:
-    """Executa um PROPFIND WebDAV (Depth: 1) e retorna o XML de resposta parseado."""
+    """Executa um PROPFIND WebDAV e retorna o XML de resposta parseado."""
     url = f"{BASE_URL}/{path}".rstrip("/") + "/"
     response = requests.request(
         "PROPFIND",

@@ -54,13 +54,19 @@ O dataset completo tem ~20GB e ~160 milhões de linhas, incompatível com os lim
 
 ```
 Receita Federal (ZIP/CSV)
-   ↓ download + unzip (adaptado do repo base)
+   ↓ download (adaptado do repo base)
+data/staging (local) — Parquet nacional por shard, sem filtro/join (PyArrow)
+   ↓ join por UF/cnpj_basico + publish (DuckDB) — não implementado ainda
 S3 — Bronze (raw convertido para Parquet, particionado por data de ingestão + UF)
    ↓ Databricks Community Edition (PySpark)
 S3/Delta — Silver (limpeza, tipagem, deduplicação — espelha a estrutura de origem)
    ↓ PySpark
 S3/Delta — Gold (modelagem orientada a propósito de consumo)
 ```
+
+### Decisão de arquitetura de ingestão (extract vs. join/publish)
+
+A ingestão foi dividida em dois estágios independentes — extração (PyArrow, lê os ZIPs e grava Parquet nacional em `data/staging/`, sem filtro) e join+publicação (DuckDB, aplica o filtro de UF/semi-join por `cnpj_basico` e publica em S3 como Bronze) — em vez de um único script fazendo tudo, para aproveitar o ponto forte de cada ferramenta (benchmark comparando pandas/PyArrow/DuckDB nesta decisão). Só o estágio de extração está implementado. Detalhes e números: `docs/decisions/0001-split-extract-and-publish.md`.
 
 ### Decisão de modelagem (Gold)
 
@@ -74,7 +80,7 @@ Star schema (Kimball) foi avaliado e **descartado** para as tabelas cadastrais, 
 | Orientada a ML | Features prontas + label | `gold.ml_features_empresas` |
 | Roadmap (documentado, não implementado na v1) | Série temporal | `gold.serie_temporal_aberturas_baixas` |
 
-Documentação completa de colunas e tipos: ver `docs/schema_gold_documentacao.md`.
+Documentação completa de colunas e tipos: ver `docs/schema_gold.md` (gitignored por enquanto — schema ainda em evolução, ver `.gitignore`).
 
 ---
 
@@ -119,16 +125,19 @@ Documentação completa de colunas e tipos: ver `docs/schema_gold_documentacao.m
 ```
 cnpj-lakehouse/
 ├── README.md                          ← documentação principal, em inglês
-├── CLAUDE.md                          ← contexto do projeto para Claude Code
+├── claude.md                          ← contexto do projeto para Claude Code
+├── context.md                         ← este documento
 ├── docs/
-│   ├── contexto_projeto.md            ← este documento
-│   ├── schema_gold_documentacao.md    ← documentação detalhada das tabelas Gold
+│   ├── schema_bronze.md               ← documentação detalhada das tabelas Bronze + staging
+│   ├── schema_gold.md                 ← documentação detalhada das tabelas Gold (gitignored, ver .gitignore)
+│   ├── decisions/                     ← ADRs (inglês)
+│   │   └── 0001-split-extract-and-publish.md
 │   ├── architecture.md                ← diagrama + decisões técnicas (inglês)
 │   └── progress.md                    ← log de progresso entre sessões
 ├── ingestion/
 │   ├── download.py                    ← adaptado do repo base
-│   ├── unzip.py                       ← adaptado do repo base
-│   └── upload_to_bronze.py
+│   ├── extract_parquet.py             ← Estágio 1: ZIP → Parquet staging (PyArrow, sem filtro)
+│   └── join_publish.py                ← Estágio 2: filtro/join + publica em S3 (DuckDB) — não implementado ainda
 ├── notebooks/
 │   ├── 01_bronze_to_silver.py
 │   └── 02_silver_to_gold.py
@@ -150,7 +159,8 @@ cnpj-lakehouse/
 - [x] Modelagem da camada Gold documentada
 - [x] Bucket S3 criado e validado
 - [x] Política IAM configurada
-- [ ] Script de ingestão adaptado
+- [x] Script de extração adaptado (ZIP → Parquet staging, sem filtro — `ingestion/extract_parquet.py`)
+- [ ] Script de join/publicação em Bronze/S3 (DuckDB, filtro UF + semi-join `cnpj_basico`)
 - [ ] Pipeline Bronze → Silver → Gold implementado
 - [ ] Terraform aplicado
 - [ ] CI/CD configurado
