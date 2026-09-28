@@ -13,7 +13,8 @@ Target audience: international data engineering job applications (2027 cycle). C
 ## Architecture
 
 Medallion architecture (Bronze → Silver → Gold), documented in:
-- `docs/schema_bronze.md` — raw layer schema (mirrors Receita Federal CSV layout) + the staging layer that precedes it
+- `docs/schema_bronze.md` — raw layer schema (mirrors Receita Federal CSV layout) + a short pointer to the staging layer that precedes it
+- `docs/schema_staging.md` — full column-by-column schema of the staging Parquet (`data/staging/`, output of `ingestion/extract_parquet.py`), plus a Mermaid ER diagram of the implied (not yet enforced) relationships between tables
 - `docs/schema_gold.md` — analytics-ready layer schema
 - `docs/decisions/` — ADRs for architecture decisions (e.g. `0001-split-extract-and-publish.md`)
 

@@ -240,6 +240,8 @@ A ingestão é dividida em dois estágios independentes (ver `docs/decisions/000
 
 O Parquet gravado pelo estágio de extração tem o **mesmo layout de colunas** de cada tabela Bronze correspondente (seções 1-6 acima), mas difere em dois pontos: (a) é **nacional**, sem filtro de UF/`cnpj_basico` — contém todos os estados; (b) é particionado por `shard=<N>` em vez de `uf=<UF>`, já que ainda não houve join/merge entre shards. Não deve ser consultado diretamente por camadas posteriores (Silver/Gold) — é insumo do estágio de Join + Publish, e será removido depois de uma publicação bem-sucedida em S3 (etapa de limpeza ainda não implementada).
 
+Schema completo (coluna a coluna, com diagrama de relacionamentos): `docs/schema_staging.md`.
+
 ---
 
 ## Notas importantes
