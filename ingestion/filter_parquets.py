@@ -31,19 +31,50 @@ ddb.sql(
      """
 )
 
-def _upload_parquet(tables: list[duckdb.DuckDBPyRelation]):
+
+
+def _upload_parquet(relations: dict[str, duckdb.DuckDBPyRelation]):
      ...
      
 
-def filter_parquets(dir: Path, uf: str | None = None, reference_date: str | None = None, shard: str | None = None):
-     estab_dir = f"{dir}/estabelecimentos/data_referencia=*/shard=*/*.parquet"
-     estab = ddb.read_parquet(estab_dir, hive_partitioning=True)
-     
-     if reference_date is not None:
-          estab = estab.filter(f"data_referencia = {reference_date}")
-     if shard is not None:
-          estab = estab.filter(f"shard = {shard}")
-     
+def filter_parquets(dir: Path, uf: str | None = None, reference_date: str | None = None):
 
+     sharded_files = ["estabelecimentos", "empresas", "socios"]
+     unsharded_files = ["simples", "dim_cnae", "dim_municipio", "dim_natureza_juridica", "dim_qualificacao_socio", "dim_motivo_deativacao", "dim_pais"]
+     paths = {}
+     stg_relations = {}
      
+     for table in sharded_files:
+          paths[table] = f"{dir}/{table}/data_referencia=*/shard=*/*.parquet"
+     for table in unsharded_files:
+          paths[table] = f"{dir}/{table}/data_referencia=*/*.parquet"
      
+     for table, path in paths.items():
+          reader = ddb.read_parquet(path, hive_partitioning=True) 
+          
+          if reference_date is not None:
+               reader = reader.filter(f"data_referencia = '{reference_date}'")
+          if table == "estabelecimentos":
+               reader = reader.filter(f"uf = '{uf}'")
+               
+          stg_relations[table] = reader
+          reader.to_view(table + "_stg")
+               
+     ddb.sql("""
+             CREATE TEMP TABLE cnpj_elegiveis AS 
+             SELECT DISTINCT cnpj_basico
+             FROM estabelecimentos_stg
+             """)
+     
+     ddb.sql("""
+             COPY (
+                  SELECT * FROM estabelecimentos_stg 
+             ) TO S3::...
+             """)
+     
+     ddb.sql("""
+             COPY (
+                  SELECT * FROM empresas_stg
+                  SEMI JOIN cnpj_elegiveis USING (cnpj_basico)
+             ) TO S3::...
+             """)
